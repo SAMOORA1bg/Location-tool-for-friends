@@ -1,0 +1,98 @@
+import React, { useEffect, useState } from 'react';
+import { View, PermissionsAndroid, Platform } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import BackgroundGeolocation from 'react-native-background-geolocation';
+
+const MapTracking = () => {
+  const [region, setRegion] = useState(null);
+  const [locations, setLocations] = useState([]);
+
+  useEffect(() => {
+    const requestPermissions = async () => {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } else if (Platform.OS === 'ios') {
+        const status = await BackgroundGeolocation.requestPermission();
+        return status === BackgroundGeolocation.AUTHORIZATION_STATUS_ALWAYS;
+      }
+      return true;
+    };
+
+    const onLocation = (location) => {
+      if (!location?.coords) return;
+
+      if (__DEV__) {
+        console.log('Location:', location);
+      }
+
+      setLocations((prev) => [...prev.slice(-49), location]); // Keep last 50
+      setRegion({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
+    };
+
+    const initLocationTracking = async () => {
+      const hasPermission = await requestPermissions();
+      if (!hasPermission) {
+        console.warn('Location permission not granted');
+        return;
+      }
+
+      // Ensure no duplicate listeners
+      BackgroundGeolocation.removeLocationListeners();
+
+      BackgroundGeolocation.onLocation(onLocation);
+
+      BackgroundGeolocation.ready({
+        desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
+        distanceFilter: 10,
+        stopOnTerminate: false,
+        startOnBoot: true,
+        debug: false,
+        logLevel: BackgroundGeolocation.LOG_LEVEL_OFF,
+      }, (state) => {
+        if (!state.enabled) {
+          BackgroundGeolocation.start();
+        }
+      });
+    };
+
+    initLocationTracking();
+
+    return () => {
+      BackgroundGeolocation.removeLocationListener(onLocation);
+      BackgroundGeolocation.stop(); // Optional: stop tracking on unmount
+    };
+  }, []);
+
+  return (
+    <View style={{ flex: 1 }}>
+      {region && (
+        <MapView
+          provider={PROVIDER_GOOGLE}
+          style={{ flex: 1 }}
+          region={region}
+        >
+          {locations.map((loc, idx) => (
+            <Marker
+              key={String(loc.timestamp ?? idx)}
+              coordinate={{
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+              }}
+              title={`Location ${idx + 1}`}
+            />
+          ))}
+        </MapView>
+      )}
+    </View>
+  );
+};
+
+export default MapTracking;
